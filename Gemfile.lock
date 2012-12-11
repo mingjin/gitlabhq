@@ -44,6 +44,16 @@ GIT
       rubyntlm (~> 0.1.1)
 
 GIT
+  remote: https://github.com/dlindahl/omniauth-cas.git
+  revision: 2162cf3adb5b15c2a8c47721534e936accdd3a51
+  ref: 2162cf3adb5b15c2a8c47721534e936accdd3a51
+  specs:
+    omniauth-cas (1.0.0)
+      addressable (~> 2.3)
+      nokogiri (~> 1.5)
+      omniauth (~> 1.1.0)
+
+GIT
   remote: https://github.com/gitlabhq/pygments.rb.git
   revision: 4db80c599067e2d5f23c5c243bf85b8ca0368ad4
   ref: 4db80c599067e2d5f23c5c243bf85b8ca0368ad4
