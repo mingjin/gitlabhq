@@ -1,8 +1,8 @@
-class UserObserver < ActiveRecord::Observer
+class UserObserver < BaseObserver
   def after_create(user)
     log_info("User \"#{user.name}\" (#{user.email}) was created")
 
-    Notify.delay.new_user_email(user.id, user.password)
+    notification.new_user(user)
   end
 
   def after_destroy user
@@ -17,11 +17,5 @@ class UserObserver < ActiveRecord::Observer
         user.create_namespace!(path: user.username, name: user.username)
       end
     end
-  end
-
-  protected
-
-  def log_info message
-    Gitlab::AppLogger.info message
   end
 end

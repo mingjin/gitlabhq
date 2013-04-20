@@ -1,25 +1,5 @@
 ## GitLab Roadmap
 
-### Common 
+Features that will be in the next release are listed on [the feedback and suggestions forum with the status "started"](http://feedback.gitlab.com/forums/176466-general/status/796456) as specified in the README.
 
-* Help page for service tasks like repos import, backup etc
-* Hide last push widget after following link
-* Add comment events 
-* gitolite namespaces for projects per user/group. It will allow us same project names for different users
-
-### Issues
-
-* labels autocomplete via jquery autocomplete
-* Import/Export issues
-* Form: Assign to me link right to the selectbox
-
-### Merge Request
-
-* Save code fragments with MR comments
-
-### Services
-
-* Campfire integration service
-* Hipchat integration service
-* Travis CI integration service
-* Jenkins CI integration service
+This ROADMAP file will be deprecated.

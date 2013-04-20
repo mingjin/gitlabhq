@@ -21,7 +21,10 @@ module Gitlab
       provider = auth.provider
       uid = auth.info.uid || auth.uid
       name = (auth.info.name||auth.uid).force_encoding("utf-8")
-      email = auth.info.email.nil? "#{auth.uid}@thoughtworks.com" || auth.info.email.dowcase
+      uid = uid.to_s.force_encoding("utf-8")
+      name = auth.info.name.to_s.force_encoding("utf-8")
+      email = auth.info.email.to_s.downcase unless auth.info.email.nil?
+#      email = auth.info.email.nil? "#{auth.uid}@thoughtworks.com" || auth.info.email.dowcase
 
       ldap_prefix = ldap ? '(LDAP) ' : ''
       #raise OmniAuth::Error, "#{ldap_prefix}#{provider} does not provide an email"\
@@ -40,10 +43,12 @@ module Gitlab
         password_confirmation: password,
         projects_limit: Gitlab.config.gitlab.default_projects_limit,
       }, as: :admin)
-      if Gitlab.config.omniauth['block_auto_created_users'] && !ldap
-        @user.blocked = true
-      end
       @user.save!
+
+      if Gitlab.config.omniauth['block_auto_created_users'] && !ldap
+        @user.block
+      end
+
       @user
     end
 

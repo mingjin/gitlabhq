@@ -12,7 +12,7 @@ FactoryGirl.define do
   factory :user, aliases: [:author, :assignee, :owner, :creator] do
     email { Faker::Internet.email }
     name
-    username { Faker::Internet.user_name }
+    sequence(:username) { |n| "#{Faker::Internet.user_name}#{n}" }
     password "123456"
     password_confirmation { password }
 
@@ -27,6 +27,15 @@ FactoryGirl.define do
     sequence(:name) { |n| "project#{n}" }
     path { name.downcase.gsub(/\s/, '_') }
     creator
+  end
+
+  factory :redmine_project, parent: :project do
+    issues_tracker { "redmine" }
+    issues_tracker_id { "project_name_in_redmine" }
+  end
+
+  factory :project_with_code, parent: :project do
+    path { 'gitlabhq' }
   end
 
   factory :group do
@@ -54,38 +63,50 @@ FactoryGirl.define do
     project
 
     trait :closed do
-      closed true
+      state :closed
+    end
+
+    trait :reopened do
+      state :reopened
     end
 
     factory :closed_issue, traits: [:closed]
+    factory :reopened_issue, traits: [:reopened]
   end
 
   factory :merge_request do
     title
     author
-    project
+    project factory: :project_with_code
     source_branch "master"
     target_branch "stable"
-
-    trait :closed do
-      closed true
-    end
 
     # pick 3 commits "at random" (from bcf03b5d~3 to bcf03b5d)
     trait :with_diffs do
       target_branch "master" # pretend bcf03b5d~3
       source_branch "stable" # pretend bcf03b5d
       st_commits do
-        [Commit.new(project.repo.commit('bcf03b5d')),
-         Commit.new(project.repo.commit('bcf03b5d~1')),
-         Commit.new(project.repo.commit('bcf03b5d~2'))]
+        [
+          project.repository.commit('bcf03b5d').to_hash,
+          project.repository.commit('bcf03b5d~1').to_hash,
+          project.repository.commit('bcf03b5d~2').to_hash
+        ]
       end
       st_diffs do
         project.repo.diff("bcf03b5d~3", "bcf03b5d")
       end
     end
 
+    trait :closed do
+      state :closed
+    end
+
+    trait :reopened do
+      state :reopened
+    end
+
     factory :closed_merge_request, traits: [:closed]
+    factory :reopened_merge_request, traits: [:reopened]
     factory :merge_request_with_diffs, traits: [:with_diffs]
   end
 
@@ -101,6 +122,7 @@ FactoryGirl.define do
     factory :note_on_merge_request_diff, traits: [:on_merge_request, :on_diff]
 
     trait :on_commit do
+      project factory: :project_with_code
       commit_id     "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a"
       noteable_type "Commit"
     end
@@ -110,6 +132,7 @@ FactoryGirl.define do
     end
 
     trait :on_merge_request do
+      project factory: :project_with_code
       noteable_id   1
       noteable_type "MergeRequest"
     end
@@ -123,7 +146,7 @@ FactoryGirl.define do
   factory :event do
     factory :closed_issue_event do
       project
-      action Event::Closed
+      action { Event::CLOSED }
       target factory: :closed_issue
       author factory: :user
     end
@@ -148,11 +171,23 @@ FactoryGirl.define do
         "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa ++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0="
       end
     end
+
+    factory :invalid_key do
+      key do
+        "ssh-rsa this_is_invalid_key=="
+      end
+    end
   end
 
   factory :milestone do
     title
     project
+
+    trait :closed do
+      state :closed
+    end
+
+    factory :closed_milestone, traits: [:closed]
   end
 
   factory :system_hook do
@@ -161,12 +196,6 @@ FactoryGirl.define do
 
   factory :project_hook do
     url
-  end
-
-  factory :wiki do
-    title
-    content
-    user
   end
 
   factory :snippet do

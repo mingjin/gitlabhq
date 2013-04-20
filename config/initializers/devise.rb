@@ -23,7 +23,7 @@ Devise.setup do |config|
   # session. If you need permissions, you should implement that in a before filter.
   # You can also supply a hash where the value is a boolean determining whether
   # or not authentication should be aborted when the value is not present.
-  # config.authentication_keys = [ :email ]
+  config.authentication_keys = [ :login ]
 
   # Configure parameters from the request object used for authentication. Each entry
   # given should be a request method and it will automatically be passed to the
@@ -99,7 +99,7 @@ Devise.setup do |config|
 
   # ==> Configuration for :validatable
   # Range for password length. Default is 6..128.
-  # config.password_length = 6..128
+  config.password_length = 6..128
 
   # Email regex used to validate email formats. It simply asserts that
   # an one (and only one) @ exists in the given string. This is mainly
@@ -217,6 +217,15 @@ Devise.setup do |config|
   end
 
   Gitlab.config.omniauth.providers.each do |provider|
-    config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret'], provider['args']
+    case provider['args']
+    when Array
+      # An Array from the configuration will be expanded.
+      config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret'], *provider['args']
+    when Hash
+      # A Hash from the configuration will be passed as is.
+      config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret'], provider['args']
+    else
+      config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret']
+    end
   end
 end

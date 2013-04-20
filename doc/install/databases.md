@@ -12,7 +12,7 @@ GitLab supports the following databases:
     sudo apt-get install -y mysql-server mysql-client libmysqlclient-dev
 
     # Login to MySQL
-    $ mysql -u root -p
+    mysql -u root -p
 
     # Create a user for GitLab. (change $password to a real password)
     mysql> CREATE USER 'gitlab'@'localhost' IDENTIFIED BY '$password';
@@ -21,13 +21,13 @@ GitLab supports the following databases:
     mysql> CREATE DATABASE IF NOT EXISTS `gitlabhq_production` DEFAULT CHARACTER SET `utf8` COLLATE `utf8_unicode_ci`;
 
     # Grant the GitLab user necessary permissopns on the table.
-    mysql> GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON `gitlabhq_production`.* TO 'gitlab'@'localhost';
+    mysql> GRANT SELECT, LOCK TABLES, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON `gitlabhq_production`.* TO 'gitlab'@'localhost';
 
     # Quit the database session
     mysql> \q
 
     # Try connecting to the new database with the new user
-    sudo -u gitlab -H mysql -u gitlab -p -D gitlabhq_production
+    sudo -u git -H mysql -u gitlab -p -D gitlabhq_production
 
 ## PostgreSQL
 
@@ -38,14 +38,14 @@ GitLab supports the following databases:
     sudo -u postgres psql -d template1
 
     # Create a user for GitLab. (change $password to a real password)
-    template1=# CREATE USER gitlab WITH PASSWORD '$password';
+    template1=# CREATE USER git WITH PASSWORD '$password';
 
     # Create the GitLab production database & grant all privileges on database
-    template1=# CREATE DATABASE gitlabhq_production OWNER gitlab;
+    template1=# CREATE DATABASE gitlabhq_production OWNER git;
 
     # Quit the database session
     template1=# \q
 
     # Try connecting to the new database with the new user
-    sudo -u gitlab -H psql -d gitlabhq_production
+    sudo -u git -H psql -d gitlabhq_production
 

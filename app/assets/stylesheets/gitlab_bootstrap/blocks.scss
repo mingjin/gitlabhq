@@ -13,11 +13,21 @@
   background: #F9F9F9;
   margin-bottom: 25px;
   border: 1px solid #CCC;
+  word-wrap: break-word;
   @include solid-shade;
 
   &.ui-box-show {
     margin:20px 0;
     background: #FFF;
+  }
+
+  &.ui-box-danger {
+    .title {
+      @include linear-gradient(#F26E5E, #bd362f);
+      color: #fff;
+      text-shadow: 0 1px 1px #900;
+      font-weight: bold;
+    }
   }
 
   img { max-width: 100%; }
@@ -32,14 +42,6 @@
   .ui-box-body,
   .ui-box-bottom {
     padding: 15px;
-    word-wrap: break-word;
-
-    pre {
-      background: none !important;
-      margin: 0;
-      border: none;
-      padding: 0;
-    }
 
     .clearfix {
       margin: 0;
@@ -95,7 +97,12 @@
 
     form {
       margin-bottom: 0;
-      margin-top: 3px;
+      margin-top: 0;
+    }
+
+    .btn {
+      position: relative;
+      top: -2px;
     }
 
     .nav-pills {
@@ -143,5 +150,24 @@
       color: #444;
       text-decoration: underline;
     }
+  }
+
+  .form-holder {
+    padding-top: 20px;
+    form {
+      margin-bottom: 0;
+      legend {
+        text-indent: 10px;
+      }
+      .form-actions {
+        margin-bottom: 0;
+      }
+    }
+  }
+}
+
+.tab-pane {
+  .ui-box {
+    margin: 3px 3px 25px 3px;
   }
 }

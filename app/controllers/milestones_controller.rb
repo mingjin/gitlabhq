@@ -12,9 +12,9 @@ class MilestonesController < ProjectResourceController
 
   def index
     @milestones = case params[:f]
-                  when 'all'; @project.milestones.order("closed, due_date DESC")
+                  when 'all'; @project.milestones.order("state, due_date DESC")
                   when 'closed'; @project.milestones.closed.order("due_date DESC")
-                  else @project.milestones.active.order("due_date ASC")
+                  else @project.milestones.active.order("due_date DESC")
                   end
 
     @milestones = @milestones.includes(:project)
@@ -32,7 +32,7 @@ class MilestonesController < ProjectResourceController
 
   def show
     @issues = @milestone.issues
-    @users = UserDecorator.decorate(@milestone.participants)
+    @users = @milestone.participants.uniq
     @merge_requests = @milestone.merge_requests
 
     respond_to do |format|

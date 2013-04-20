@@ -8,7 +8,7 @@ module ExtractsPath
 
   included do
     if respond_to?(:before_filter)
-      before_filter :assign_ref_vars, only: [:show]
+      before_filter :assign_ref_vars
     end
   end
 
@@ -33,7 +33,7 @@ module ExtractsPath
   #   extract_ref("v2.0.0/README.md")
   #   # => ['v2.0.0', 'README.md']
   #
-  #   extract_ref('/gitlab/vagrant/tree/master/app/models/project.rb')
+  #   extract_ref('master/app/models/project.rb')
   #   # => ['master', 'app/models/project.rb']
   #
   #   extract_ref('issues/1234/app/models/project.rb')
@@ -45,19 +45,12 @@ module ExtractsPath
   #
   # Returns an Array where the first value is the tree-ish and the second is the
   # path
-  def extract_ref(input)
+  def extract_ref(id)
     pair = ['', '']
 
     return pair unless @project
 
-    # Remove project, actions and all other staff from path
-    input.gsub!(/^\/#{Regexp.escape(@project.path_with_namespace)}/, "")
-    input.gsub!(/^\/(tree|commits|blame|blob|refs)\//, "") # remove actions
-    input.gsub!(/\?.*$/, "") # remove stamps suffix
-    input.gsub!(/.atom$/, "") # remove rss feed
-    input.gsub!(/\/edit$/, "") # remove edit route part
-
-    if input.match(/^([[:alnum:]]{40})(.+)/)
+    if id.match(/^([[:alnum:]]{40})(.+)/)
       # If the ref appears to be a SHA, we're done, just split the string
       pair = $~.captures
     else
@@ -65,7 +58,6 @@ module ExtractsPath
       # branches and tags
 
       # Append a trailing slash if we only get a ref and no file path
-      id = input
       id += '/' unless id.ends_with?('/')
 
       valid_refs = @project.repository.ref_names
@@ -93,8 +85,8 @@ module ExtractsPath
   # - @id     - A string representing the joined ref and path
   # - @ref    - A string representing the ref (e.g., the branch, tag, or commit SHA)
   # - @path   - A string representing the filesystem path
-  # - @commit - A CommitDecorator representing the commit from the given ref
-  # - @tree   - A TreeDecorator representing the tree at the given ref/path
+  # - @commit - A Commit representing the commit from the given ref
+  # - @tree   - A Tree representing the tree at the given ref/path
   #
   # If the :id parameter appears to be requesting a specific response format,
   # that will be handled as well.
@@ -102,25 +94,18 @@ module ExtractsPath
   # Automatically renders `not_found!` if a valid tree path could not be
   # resolved (e.g., when a user inserts an invalid path or ref).
   def assign_ref_vars
-    # Handle formats embedded in the id
-    if params[:id].ends_with?('.atom')
-      params[:id].gsub!(/\.atom$/, '')
-      request.format = :atom
-    end
+    @id = params[:id]
 
-    path = CGI::unescape(request.fullpath.dup)
+    @ref, @path = extract_ref(@id)
 
-    @ref, @path = extract_ref(path)
+    # It is used "@project.repository.commits(@ref, @path, 1, 0)",
+    # because "@project.repository.commit(@ref)" returns wrong commit when @ref is tag name.
+    @commit = @project.repository.commits(@ref, @path, 1, 0).first
 
-    @id = File.join(@ref, @path)
+    @tree = Tree.new(@project.repository, @commit.id, @ref, @path)
 
-    @commit = CommitDecorator.decorate(@project.repository.commit(@ref))
-
-    @tree = Tree.new(@commit.tree, @ref, @path)
-    @tree = TreeDecorator.new(@tree)
-
-    raise InvalidPathError if @tree.invalid?
-  rescue NoMethodError, InvalidPathError
+    raise InvalidPathError unless @tree.exists?
+  rescue RuntimeError, NoMethodError, InvalidPathError
     not_found!
   end
 end

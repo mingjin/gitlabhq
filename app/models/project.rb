@@ -8,7 +8,6 @@
 #  description            :text
 #  created_at             :datetime         not null
 #  updated_at             :datetime         not null
-#  private_flag           :boolean          default(TRUE), not null
 #  creator_id             :integer
 #  default_branch         :string(255)
 #  issues_enabled         :boolean          default(TRUE), not null
@@ -16,44 +15,53 @@
 #  merge_requests_enabled :boolean          default(TRUE), not null
 #  wiki_enabled           :boolean          default(TRUE), not null
 #  namespace_id           :integer
+#  public                 :boolean          default(FALSE), not null
+#  issues_tracker         :string(255)      default("gitlab"), not null
+#  issues_tracker_id      :string(255)
+#  snippets_enabled       :boolean          default(TRUE), not null
+#  last_activity_at       :datetime
 #
 
 require "grit"
 
 class Project < ActiveRecord::Base
-  include Gitolited
+  include Gitlab::ShellAdapter
+  extend Enumerize
 
-  class TransferError < StandardError; end
+  attr_accessible :name, :path, :description, :default_branch, :issues_tracker, :label_list,
+    :issues_enabled, :wall_enabled, :merge_requests_enabled, :snippets_enabled, :issues_tracker_id,
+    :wiki_enabled, :public, :import_url, :last_activity_at, as: [:default, :admin]
 
-  attr_accessible :name, :path, :description, :default_branch, :issues_enabled,
-                  :wall_enabled, :merge_requests_enabled, :wiki_enabled, as: [:default, :admin]
+  attr_accessible :namespace_id, :creator_id, as: :admin
 
-  attr_accessible :namespace_id, :creator_id, :public, as: :admin
+  acts_as_taggable_on :labels
 
-  attr_accessor :error_code
+  attr_accessor :import_url
 
   # Relations
-  belongs_to :group, foreign_key: "namespace_id", conditions: "type = 'Group'"
+  belongs_to :creator,      foreign_key: "creator_id", class_name: "User"
+  belongs_to :group,        foreign_key: "namespace_id", conditions: "type = 'Group'"
   belongs_to :namespace
 
-  belongs_to :creator,
-    class_name: "User",
-    foreign_key: "creator_id"
-
-  has_many :users,          through: :users_projects
-  has_many :events,         dependent: :destroy
-  has_many :merge_requests, dependent: :destroy
-  has_many :issues,         dependent: :destroy, order: "closed, created_at DESC"
-  has_many :milestones,     dependent: :destroy
-  has_many :users_projects, dependent: :destroy
-  has_many :notes,          dependent: :destroy
-  has_many :snippets,       dependent: :destroy
-  has_many :deploy_keys,    dependent: :destroy, foreign_key: "project_id", class_name: "Key"
-  has_many :hooks,          dependent: :destroy, class_name: "ProjectHook"
-  has_many :wikis,          dependent: :destroy
-  has_many :protected_branches, dependent: :destroy
   has_one :last_event, class_name: 'Event', order: 'events.created_at DESC', foreign_key: 'project_id'
   has_one :gitlab_ci_service, dependent: :destroy
+
+  has_many :events,             dependent: :destroy
+  has_many :merge_requests,     dependent: :destroy
+  has_many :issues,             dependent: :destroy, order: "state DESC, created_at DESC"
+  has_many :milestones,         dependent: :destroy
+  has_many :users_projects,     dependent: :destroy
+  has_many :notes,              dependent: :destroy
+  has_many :snippets,           dependent: :destroy
+  has_many :deploy_keys,        dependent: :destroy, class_name: "Key", foreign_key: "project_id"
+  has_many :hooks,              dependent: :destroy, class_name: "ProjectHook"
+  has_many :protected_branches, dependent: :destroy
+  has_many :user_team_project_relationships, dependent: :destroy
+
+  has_many :users,          through: :users_projects
+  has_many :user_teams,     through: :user_team_project_relationships
+  has_many :user_team_user_relationships, through: :user_teams
+  has_many :user_teams_members, through: :user_team_user_relationships
 
   delegate :name, to: :owner, allow_nil: true, prefix: true
 
@@ -68,20 +76,30 @@ class Project < ActiveRecord::Base
                       message: "only letters, digits & '_' '-' '.' allowed. Letter should be first" }
   validates :issues_enabled, :wall_enabled, :merge_requests_enabled,
             :wiki_enabled, inclusion: { in: [true, false] }
+  validates :issues_tracker_id, length: { within: 0..255 }
 
   validates_uniqueness_of :name, scope: :namespace_id
   validates_uniqueness_of :path, scope: :namespace_id
 
+  validates :import_url,
+    format: { with: URI::regexp(%w(http https)), message: "should be a valid url" },
+    if: :import?
+
   validate :check_limit, :repo_name
 
   # Scopes
-  scope :without_user, ->(user)  { where("id NOT IN (:ids)", ids: user.authorized_projects.map(&:id) ) }
-  scope :not_in_group, ->(group) { where("id NOT IN (:ids)", ids: group.project_ids ) }
+  scope :without_user, ->(user)  { where("projects.id NOT IN (:ids)", ids: user.authorized_projects.map(&:id) ) }
+  scope :without_team, ->(team) { team.projects.present? ? where("projects.id NOT IN (:ids)", ids: team.projects.map(&:id)) : scoped  }
+  scope :not_in_group, ->(group) { where("projects.id NOT IN (:ids)", ids: group.project_ids ) }
+  scope :in_team, ->(team) { where("projects.id IN (:ids)", ids: team.projects.map(&:id)) }
   scope :in_namespace, ->(namespace) { where(namespace_id: namespace.id) }
-  scope :sorted_by_activity, ->() { order("(SELECT max(events.created_at) FROM events WHERE events.project_id = projects.id) DESC") }
+  scope :in_group_namespace, -> { joins(:group) }
+  scope :sorted_by_activity, -> { order("projects.last_activity_at DESC") }
   scope :personal, ->(user) { where(namespace_id: user.namespace_id) }
   scope :joined, ->(user) { where("namespace_id != ?", user.namespace_id) }
-  scope :public, where(public: true)
+  scope :public_only, -> { where(public: true) }
+
+  enumerize :issues_tracker, in: (Gitlab.config.issues_tracker.keys).append(:gitlab), default: :gitlab
 
   class << self
     def abandoned
@@ -93,7 +111,7 @@ class Project < ActiveRecord::Base
     end
 
     def with_push
-      includes(:events).where('events.action = ?', Event::Pushed)
+      includes(:events).where('events.action = ?', Event::PUSHED)
     end
 
     def active
@@ -116,92 +134,37 @@ class Project < ActiveRecord::Base
       end
     end
 
-    def create_by_user(params, user)
-      namespace_id = params.delete(:namespace_id)
-
-      project = Project.new params
-
-      Project.transaction do
-
-        # Parametrize path for project
-        #
-        # Ex.
-        #  'GitLab HQ'.parameterize => "gitlab-hq"
-        #
-        project.path = project.name.dup.parameterize
-
-        project.creator = user
-
-        # Apply namespace if user has access to it
-        # else fallback to user namespace
-        if namespace_id != Namespace.global_id
-          project.namespace_id = user.namespace_id
-
-          if namespace_id
-            group = Group.find_by_id(namespace_id)
-            if user.can? :manage_group, group
-              project.namespace_id = namespace_id
-            end
-          end
-        end
-
-        project.save!
-
-        # Add user as project master
-        project.users_projects.create!(project_access: UsersProject::MASTER, user: user)
-
-        # when project saved no team member exist so
-        # project repository should be updated after first user add
-        project.update_repository
-      end
-
-      project
-    rescue Gitlab::Gitolite::AccessDenied => ex
-      project.error_code = :gitolite
-      project
-    rescue => ex
-      project.error_code = :db
-      project.errors.add(:base, "Can't save project. Please try again later")
-      project
-    end
-
     def access_options
       UsersProject.access_roles
     end
   end
 
   def team
-    @team ||= Team.new(self)
+    @team ||= ProjectTeam.new(self)
   end
 
   def repository
-    if path
-      @repository ||= Repository.new(path_with_namespace, default_branch)
-    else
-      nil
-    end
-  rescue Grit::NoSuchPathError
-    nil
-  end
-
-  def git_error?
-    error_code == :gitolite
+    @repository ||= Repository.new(path_with_namespace, default_branch)
   end
 
   def saved?
-    id && valid?
+    id && persisted?
+  end
+
+  def import?
+    import_url.present?
   end
 
   def check_limit
     unless creator.can_create_project?
-      errors[:base] << ("Your own projects limit is #{creator.projects_limit}! Please contact administrator to increase it")
+      errors[:limit_reached] << ("Your own projects limit is #{creator.projects_limit}! Please contact administrator to increase it")
     end
   rescue
     errors[:base] << ("Can't check your ability to create project")
   end
 
   def repo_name
-    denied_paths = %w(gitolite-admin admin dashboard groups help profile projects search)
+    denied_paths = %w(admin dashboard groups help profile projects search)
 
     if denied_paths.include?(path)
       errors.add(:path, "like #{path} is not allowed")
@@ -229,7 +192,7 @@ class Project < ActiveRecord::Base
   end
 
   def last_activity_date
-    last_event.try(:created_at) || updated_at
+    last_activity_at || updated_at
   end
 
   def project_id
@@ -238,6 +201,22 @@ class Project < ActiveRecord::Base
 
   def issues_labels
     issues.tag_counts_on(:labels)
+  end
+
+  def issue_exists?(issue_id)
+    if used_default_issues_tracker?
+      self.issues.where(id: issue_id).first.present?
+    else
+      true
+    end
+  end
+
+  def used_default_issues_tracker?
+    self.issues_tracker == Project.issues_tracker.default_value
+  end
+
+  def can_have_issues_tracker_id?
+    self.issues_enabled && !self.used_default_issues_tracker?
   end
 
   def services
@@ -286,34 +265,6 @@ class Project < ActiveRecord::Base
     users_projects.find_by_user_id(user_id)
   end
 
-  def transfer(new_namespace)
-    Project.transaction do
-      old_namespace = namespace
-      self.namespace = new_namespace
-
-      old_dir = old_namespace.try(:path) || ''
-      new_dir = new_namespace.try(:path) || ''
-
-      old_repo = if old_dir.present?
-                   File.join(old_dir, self.path)
-                 else
-                   self.path
-                 end
-
-      if Project.where(path: self.path, namespace_id: new_namespace.try(:id)).present?
-        raise TransferError.new("Project with same path in target namespace already exists")
-      end
-
-      Gitlab::ProjectMover.new(self, old_dir, new_dir).execute
-
-      gitolite.move_repository(old_repo, self)
-
-      save!
-    end
-  rescue Gitlab::ProjectMover::ProjectMoveError => ex
-    raise Project::TransferError.new(ex.message)
-  end
-
   def name_with_namespace
     @name_with_namespace ||= begin
                                if namespace
@@ -336,55 +287,12 @@ class Project < ActiveRecord::Base
     end
   end
 
-  # This method will be called after each post receive and only if the provided
-  # user is present in GitLab.
-  #
-  # All callbacks for post receive should be placed here.
-  def trigger_post_receive(oldrev, newrev, ref, user)
-    data = post_receive_data(oldrev, newrev, ref, user)
-
-    # Create push event
-    self.observe_push(data)
-
-    if push_to_branch? ref, oldrev
-      # Close merged MR
-      self.update_merge_requests(oldrev, newrev, ref, user)
-
-      # Execute web hooks
-      self.execute_hooks(data.dup)
-
-      # Execute project services
-      self.execute_services(data.dup)
-    end
-
-    # Create satellite
-    self.satellite.create unless self.satellite.exists?
-
-    # Discover the default branch, but only if it hasn't already been set to
-    # something else
-    if repository && default_branch.nil?
-      update_attributes(default_branch: self.repository.discover_default_branch)
-    end
-  end
-
-  def push_to_branch? ref, oldrev
-    ref_parts = ref.split('/')
-
-    # Return if this is not a push to a branch (e.g. new commits)
-    !(ref_parts[1] !~ /heads/ || oldrev == "00000000000000000000000000000000")
-  end
-
-  def observe_push(data)
-    Event.create(
-      project: self,
-      action: Event::Pushed,
-      data: data,
-      author_id: data[:user_id]
-    )
+  def transfer(new_namespace)
+    ProjectTransferService.new.transfer(self, new_namespace)
   end
 
   def execute_hooks(data)
-    hooks.each { |hook| hook.execute(data) }
+    hooks.each { |hook| hook.async_execute(data) }
   end
 
   def execute_services(data)
@@ -395,68 +303,12 @@ class Project < ActiveRecord::Base
     end
   end
 
-  # Produce a hash of post-receive data
-  #
-  # data = {
-  #   before: String,
-  #   after: String,
-  #   ref: String,
-  #   user_id: String,
-  #   user_name: String,
-  #   repository: {
-  #     name: String,
-  #     url: String,
-  #     description: String,
-  #     homepage: String,
-  #   },
-  #   commits: Array,
-  #   total_commits_count: Fixnum
-  # }
-  #
-  def post_receive_data(oldrev, newrev, ref, user)
-
-    push_commits = repository.commits_between(oldrev, newrev)
-
-    # Total commits count
-    push_commits_count = push_commits.size
-
-    # Get latest 20 commits ASC
-    push_commits_limited = push_commits.last(20)
-
-    # Hash to be passed as post_receive_data
-    data = {
-      before: oldrev,
-      after: newrev,
-      ref: ref,
-      user_id: user.id,
-      user_name: user.name,
-      repository: {
-        name: name,
-        url: url_to_repo,
-        description: description,
-        homepage: web_url,
-      },
-      commits: [],
-      total_commits_count: push_commits_count
-    }
-
-    # For perfomance purposes maximum 20 latest commits
-    # will be passed as post receive hook data.
-    #
-    push_commits_limited.each do |commit|
-      data[:commits] << {
-        id: commit.id,
-        message: commit.safe_message,
-        timestamp: commit.date.xmlschema,
-        url: "#{Gitlab.config.gitlab.url}/#{path_with_namespace}/commit/#{commit.id}",
-        author: {
-          name: commit.author_name,
-          email: commit.author_email
-        }
-      }
+  def discover_default_branch
+    # Discover the default branch, but only if it hasn't already been set to
+    # something else
+    if repository && default_branch.nil?
+      update_attributes(default_branch: self.repository.discover_default_branch)
     end
-
-    data
   end
 
   def update_merge_requests(oldrev, newrev, ref, user)
@@ -465,7 +317,7 @@ class Project < ActiveRecord::Base
     c_ids = self.repository.commits_between(oldrev, newrev).map(&:id)
 
     # Update code for merge requests
-    mrs = self.merge_requests.opened.find_all_by_branch(branch_name).all
+    mrs = self.merge_requests.opened.by_branch(branch_name).all
     mrs.each { |merge_request| merge_request.reload_code; merge_request.mark_as_unchecked }
 
     # Close merge requests
@@ -477,14 +329,18 @@ class Project < ActiveRecord::Base
   end
 
   def valid_repo?
-    repo
+    repository.exists?
   rescue
     errors.add(:path, "Invalid repository path")
     false
   end
 
   def empty_repo?
-    !repository || repository.empty?
+    !repository.exists? || repository.empty?
+  end
+
+  def ensure_satellite_exists
+    self.satellite.create unless self.satellite.exists?
   end
 
   def satellite
@@ -496,34 +352,33 @@ class Project < ActiveRecord::Base
   end
 
   def url_to_repo
-    gitolite.url_to_repo(path_with_namespace)
+    gitlab_shell.url_to_repo(path_with_namespace)
   end
 
   def namespace_dir
     namespace.try(:path) || ''
   end
 
-  def update_repository
-    gitolite.update_repository(self)
-  end
-
-  def destroy_repository
-    gitolite.remove_repository(self)
-  end
-
   def repo_exists?
-    @repo_exists ||= (repository && repository.branches.present?)
+    @repo_exists ||= repository.exists?
   rescue
     @repo_exists = false
   end
 
   def open_branches
-    if protected_branches.empty?
-      self.repo.heads
-    else
-      pnames = protected_branches.map(&:name)
-      self.repo.heads.reject { |h| pnames.include?(h.name) }
-    end.sort_by(&:name)
+    all_branches = repository.branches
+
+    if protected_branches.present?
+      all_branches.reject! do |branch|
+        protected_branches_names.include?(branch.name)
+      end
+    end
+
+    all_branches
+  end
+
+  def protected_branches_names
+    @protected_branches_names ||= protected_branches.map(&:name)
   end
 
   def root_ref?(branch)
@@ -538,8 +393,13 @@ class Project < ActiveRecord::Base
     http_url = [Gitlab.config.gitlab.url, "/", path_with_namespace, ".git"].join('')
   end
 
+  def project_access_human(member)
+    project_user_relation = self.users_projects.find_by_user_id(member.id)
+    self.class.access_options.key(project_user_relation.project_access)
+  end
+
   # Check if current branch name is marked as protected in the system
   def protected_branch? branch_name
-    protected_branches.map(&:name).include?(branch_name)
+    protected_branches_names.include?(branch_name)
   end
 end

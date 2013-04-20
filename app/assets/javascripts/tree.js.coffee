@@ -6,17 +6,12 @@ $ ->
     $('span.log_loading:first').removeClass('hide')
 
     $('#tree-slider .tree-item-file-name a, .breadcrumb li > a').live "click", ->
-      $("#tree-content-holder").hide("slide", { direction: "left" }, 150)
+      $("#tree-content-holder").hide("slide", { direction: "left" }, 400)
 
     # Make the entire tree-item row clickable, but not if clicking another link (like a commit message)
     $("#tree-slider .tree-item").live 'click', (e) ->
       $('.tree-item-file-name a', this).trigger('click') if (e.target.nodeName != "A")
-
-    # Show/Hide the loading spinner
-    $('#tree-slider .tree-item-file-name a, .breadcrumb a, .project-refs-form').live
-      "ajax:beforeSend": -> $('.tree_progress').addClass("loading")
-      "ajax:complete":   -> $('.tree_progress').removeClass("loading")
-
+  
     # Maintain forward/back history while browsing the file tree
     ((window) ->
       History = window.History
@@ -33,7 +28,12 @@ $ ->
 
       History.Adapter.bind window, 'statechange', ->
         state = History.getState()
-        window.ajaxGet(state.url)
+        $.ajax({
+          url: state.url,
+          dataType: 'script',
+          beforeSend: -> $('.tree_progress').addClass("loading"),
+          complete: -> $('.tree_progress').removeClass("loading")
+        })
     )(window)
 
   # See if there are lines selected

@@ -1,4 +1,4 @@
-class Admin::GroupsController < AdminController
+class Admin::GroupsController < Admin::ApplicationController
   before_filter :group, only: [:edit, :show, :update, :destroy, :project_update, :project_teams_update]
 
   def index
@@ -69,7 +69,7 @@ class Admin::GroupsController < AdminController
 
   def project_teams_update
     @group.add_users_to_project_teams(params[:user_ids], params[:project_access])
-    redirect_to [:admin, @group], notice: 'Users was successfully added.'
+    redirect_to [:admin, @group], notice: 'Users were successfully added.'
   end
 
   def destroy

@@ -2,16 +2,17 @@
 #
 # Table name: users_projects
 #
-#  id             :integer          not null, primary key
-#  user_id        :integer          not null
-#  project_id     :integer          not null
-#  created_at     :datetime         not null
-#  updated_at     :datetime         not null
-#  project_access :integer          default(0), not null
+#  id                 :integer          not null, primary key
+#  user_id            :integer          not null
+#  project_id         :integer          not null
+#  created_at         :datetime         not null
+#  updated_at         :datetime         not null
+#  project_access     :integer          default(0), not null
+#  notification_level :integer          default(3), not null
 #
 
 class UsersProject < ActiveRecord::Base
-  include Gitolited
+  include Gitlab::ShellAdapter
 
   GUEST     = 10
   REPORTER  = 20
@@ -25,21 +26,22 @@ class UsersProject < ActiveRecord::Base
 
   attr_accessor :skip_git
 
-  after_save :update_repository, unless: :skip_git?
-  after_destroy :update_repository, unless: :skip_git?
-
   validates :user, presence: true
   validates :user_id, uniqueness: { scope: [:project_id], message: "already exists in project" }
   validates :project_access, inclusion: { in: [GUEST, REPORTER, DEVELOPER, MASTER] }, presence: true
   validates :project, presence: true
+  validates :notification_level, inclusion: { in: Notification.project_notification_levels }, presence: true
 
-  delegate :name, :email, to: :user, prefix: true
+  delegate :name, :username, :email, to: :user, prefix: true
 
-  scope :guests, where(project_access: GUEST)
-  scope :reporters, where(project_access: REPORTER)
-  scope :developers, where(project_access: DEVELOPER)
-  scope :masters, where(project_access: MASTER)
+  scope :guests, -> { where(project_access: GUEST) }
+  scope :reporters, -> { where(project_access: REPORTER) }
+  scope :developers, -> { where(project_access: DEVELOPER) }
+  scope :masters,  -> { where(project_access: MASTER) }
+
   scope :in_project, ->(project) { where(project_id: project.id) }
+  scope :in_projects, ->(projects) { where(project_id: projects.map { |p| p.id }) }
+  scope :with_user, ->(user) { where(user_id: user.id) }
 
   class << self
 
@@ -79,7 +81,6 @@ class UsersProject < ActiveRecord::Base
             users_project.save
           end
         end
-        Gitlab::Gitolite.new.update_repositories(Project.where(id: project_ids))
       end
 
       true
@@ -94,7 +95,6 @@ class UsersProject < ActiveRecord::Base
           users_project.skip_git = true
           users_project.destroy
         end
-        Gitlab::Gitolite.new.update_repositories(Project.where(id: project_ids))
       end
 
       true
@@ -125,10 +125,6 @@ class UsersProject < ActiveRecord::Base
     end
   end
 
-  def update_repository
-    gitolite.update_repository(project)
-  end
-
   def project_access_human
     Project.access_options.key(self.project_access)
   end
@@ -139,5 +135,9 @@ class UsersProject < ActiveRecord::Base
 
   def skip_git?
     !!@skip_git
+  end
+
+  def notification
+    @notification ||= Notification.new(self)
   end
 end

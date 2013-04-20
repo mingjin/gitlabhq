@@ -1,3 +1,7 @@
+html {
+  overflow-y: scroll;
+}
+
 /** LAYOUT **/
 
 body {
@@ -13,7 +17,6 @@ body {
   margin: 0 0;
 }
 
-.visible_link,
 .author_link {
   color: $link_color;
 }
@@ -28,28 +31,10 @@ body {
   padding-bottom: 0;
 }
 
-.info_link {
-  margin-right: 5px;
-  float: left;
-
-  img {
-    width: 20px;
-  }
-}
-
-.download_repo_link {
-  background: url("images.png") no-repeat 0 -48px;
-  padding-left: 20px;
-}
-
 table a code {
   position: relative;
   top: -2px;
   margin-right: 3px;
-}
-
-.span12 hr{
- margin-top: 5px;
 }
 
 .loading {
@@ -63,32 +48,18 @@ table a code {
 }
 
 /** FLASH message **/
-#flash-container {
-  height: 50px;
-  position: fixed;
-  z-index: 10001;
-  top: 0px;
-  width: 100%;
-  margin-bottom: 15px;
-  overflow: hidden;
-  background: white;
-  cursor: pointer;
-  border-bottom: 1px solid #ccc;
-  text-align: center;
+.flash-container {
   display: none;
+  .alert {
+    cursor: pointer;
+    margin: 0;
+    text-align: center;
+    border-radius: 0;
 
-  h4 {
-    color: #666;
-    font-size: 18px;
-    line-height: 38px;
-    padding-top: 5px;
-    margin: 2px;
-    font-weight: normal;
+    span {
+      font-size: 14px;
+    }
   }
-}
-
-.git_url_wrapper {
-  margin-right:50px
 }
 
 span.update-author {
@@ -102,37 +73,16 @@ span.update-author {
   }
 }
 
-.dashboard-loader {
-  float: left;
-  margin: 10px;
-  display: none;
-}
 .user-mention {
   color: #2FA0BB;
   font-weight: bold;
 }
 
-.neib {
-  margin-right: 10px;
-}
-
 .label {
-  padding: 0px 4px;
-  font-size: 10px;
+  padding: 1px 4px;
+  font-size: 12px;
   font-style: normal;
-  background-color: $link_color;
-
-  &.label-success {
-    background-color: #8D8;
-    color: #333;
-    text-shadow: 0 1px 1px white;
-  }
-
-  &.label-error {
-    background-color: #D88;
-    color: #333;
-    text-shadow: 0 1px 1px white;
-  }
+  font-weight: normal;
 }
 
 form {
@@ -179,17 +129,6 @@ ul.breadcrumb {
     font-weight: bold;
     font-size: 14px;
   }
-
-  .arrow {
-    background: url("images.png") no-repeat -85px -77px;
-    width: 19px;
-    height: 16px;
-    float: left;
-    position: relative;
-    left: -10px;
-    padding: 0;
-    margin: 0;
-  }
 }
 
 input[type=text] {
@@ -198,31 +137,6 @@ input[type=text] {
     font-size: 16px;
   }
 }
-
-input.git_clone_url {
-  width: 325px;
-}
-
-.merge-request-form-holder {
-  select {
-    width: 300px;
-  }
-}
-
-/** Issues **/
-#issue_assignee_id {
-  width: 300px;
-}
-
-#new_issue_dialog textarea{
-    height: 100px;
-}
-
-.project_list_url {
-  width: 250px;
-  background:#fff !important;
-}
-
 
 .line_holder {
   &:hover {
@@ -255,26 +169,20 @@ p.time {
   margin: 30px 3px 3px 2px;
 }
 
-
-.styled_image {
-  border: 2px solid #ddd;
-}
-
-
-
-/* Fix for readme code (stopped it from being yellow) */
-.readme {
-  pre {
-    background: white !important;
-
-    code {
-      background: none !important;
-    }
+.search-holder {
+  label, input {
+     height: 30px;
+     padding: 0;
+     font-size: 14px;
+  }
+  label {
+    line-height: 30px;
+    color: #666;
   }
 }
 
 .highlight_word {
-  background: #EEDC94;
+  border-bottom: 2px solid #F90;
 }
 
 .status_info {
@@ -286,6 +194,11 @@ p.time {
   position: relative;
   top: -5px;
   @include border-radius(4px);
+
+  &.success {
+    background: #4A4;
+    color: #FFF;
+  }
 
   &.error {
     background: #DA4E49;
@@ -322,10 +235,6 @@ li.note {
     li {
       border-bottom:none !important;
     }
-    .file {
-      padding-left: 20px;
-      background:url("icon-attachment.png") no-repeat left center;
-    }
   }
 }
 
@@ -358,25 +267,6 @@ li.note {
 }
 
 
-
-/**
- * Admin area
- *
- */
-.admin_dash {
-  .data {
-    a {
-      h1 {
-        line-height: 48px;
-        font-size: 48px;
-        padding: 20px;
-        text-align: center;
-        font-weight: normal;
-      }
-    }
-  }
-}
-
 .rss-icon {
   img {
     width: 24px;
@@ -389,24 +279,12 @@ li.note {
 }
 
 
-
-/* CHZN reset few styles */
-.chzn-container-single .chzn-single {
-  background: #FFF;
-  border: 1px solid #bbb;
-  box-shadow: none;
-}
-.chzn-container-active .chzn-single {
-  background: #fff;
-}
-
-
 .supp_diff_link,
 .show-all-commits {
   cursor: pointer;
 }
 
-.merge_request,
+.merge-request,
 .issue {
   &.today{
     background: #EFE;
@@ -506,27 +384,6 @@ pre {
   }
 }
 
-.float-link {
-  float: left;
-  margin-right: 15px;
-  .s16 {
-    margin-right: 5px;
-  }
-}
-
-.dashboard-search-filter {
-  padding:5px;
-
-  .search-text-input {
-    float:left;
-    @extend .span2;
-  }
-  .btn {
-    margin-left: 5px;
-    float:left;
-  }
-}
-
 h1.http_status_code {
   font-size: 56px;
   line-height: 100px;
@@ -551,4 +408,13 @@ img.emoji {
   height: 20px;
   vertical-align: middle;
   width: 20px;
+}
+
+.appear-data {
+  display: none;
+}
+
+.chart {
+  overflow: hidden;
+  height: 220px;
 }

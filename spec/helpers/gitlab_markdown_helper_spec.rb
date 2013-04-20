@@ -1,10 +1,13 @@
 require "spec_helper"
 
 describe GitlabMarkdownHelper do
-  let!(:project) { create(:project) }
+  include ApplicationHelper
+  include IssuesHelper
+
+  let!(:project) { create(:project_with_code) }
 
   let(:user)          { create(:user, username: 'gfm') }
-  let(:commit)        { CommitDecorator.decorate(project.repository.commit) }
+  let(:commit)        { project.repository.commit }
   let(:issue)         { create(:issue, project: project) }
   let(:merge_request) { create(:merge_request, project: project) }
   let(:snippet)       { create(:snippet, project: project) }
@@ -82,7 +85,7 @@ describe GitlabMarkdownHelper do
 
     describe "referencing a team member" do
       let(:actual)   { "@#{user.username} you are right." }
-      let(:expected) { project_team_member_path(project, member) }
+      let(:expected) { user_path(user) }
 
       before do
         project.team << [user, :master]
@@ -272,7 +275,7 @@ describe GitlabMarkdownHelper do
       groups[0].should match(/This should finally fix $/)
 
       # First issue link
-      groups[1].should match(/href="#{project_issue_path(project, issues[0])}"/)
+      groups[1].should match(/href="#{project_issue_url(project, issues[0])}"/)
       groups[1].should match(/##{issues[0].id}$/)
 
       # Internal commit link
@@ -280,7 +283,7 @@ describe GitlabMarkdownHelper do
       groups[2].should match(/ and /)
 
       # Second issue link
-      groups[3].should match(/href="#{project_issue_path(project, issues[1])}"/)
+      groups[3].should match(/href="#{project_issue_url(project, issues[1])}"/)
       groups[3].should match(/##{issues[1].id}$/)
 
       # Trailing commit link
@@ -338,6 +341,50 @@ describe GitlabMarkdownHelper do
 
     it "should leave inline code untouched" do
       markdown("\nDon't use `$#{snippet.id}` here.\n").should == "<p>Don&#39;t use <code>$#{snippet.id}</code> here.</p>\n"
+    end
+
+    it "should leave ref-like autolinks untouched" do
+      markdown("look at http://example.tld/#!#{merge_request.id}").should == "<p>look at <a href=\"http://example.tld/#!#{merge_request.id}\">http://example.tld/#!#{merge_request.id}</a></p>\n"
+    end
+
+    it "should leave ref-like href of 'manual' links untouched" do
+      markdown("why not [inspect !#{merge_request.id}](http://example.tld/#!#{merge_request.id})").should == "<p>why not <a href=\"http://example.tld/#!#{merge_request.id}\">inspect </a><a href=\"#{project_merge_request_url(project, merge_request)}\" class=\"gfm gfm-merge_request \" title=\"Merge Request: #{merge_request.title}\">!#{merge_request.id}</a><a href=\"http://example.tld/#!#{merge_request.id}\"></a></p>\n"
+    end
+
+    it "should leave ref-like src of images untouched" do
+      markdown("screen shot: ![some image](http://example.tld/#!#{merge_request.id})").should == "<p>screen shot: <img src=\"http://example.tld/#!#{merge_request.id}\" alt=\"some image\"></p>\n"
+    end
+
+    it "should generate absolute urls for refs" do
+      markdown("##{issue.id}").should include(project_issue_url(project, issue))
+    end
+
+    it "should generate absolute urls for emoji" do
+      markdown(":smile:").should include("src=\"#{url_to_image("emoji/smile")}")
+    end
+  end
+
+  describe "#render_wiki_content" do
+    before do
+      @wiki = stub('WikiPage')
+      @wiki.stub(:content).and_return('wiki content')
+    end
+
+    it "should use Gitlab Flavored Markdown for markdown files" do
+      @wiki.stub(:format).and_return(:markdown)
+
+      helper.should_receive(:markdown).with('wiki content')
+
+      helper.render_wiki_content(@wiki)
+    end
+
+    it "should use the Gollum renderer for all other file types" do
+      @wiki.stub(:format).and_return(:rdoc)
+      formatted_content_stub = stub('formatted_content')
+      formatted_content_stub.should_receive(:html_safe)
+      @wiki.stub(:formatted_content).and_return(formatted_content_stub)
+
+      helper.render_wiki_content(@wiki)
     end
   end
 end

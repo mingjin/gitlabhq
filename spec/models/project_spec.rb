@@ -8,7 +8,6 @@
 #  description            :text
 #  created_at             :datetime         not null
 #  updated_at             :datetime         not null
-#  private_flag           :boolean          default(TRUE), not null
 #  creator_id             :integer
 #  default_branch         :string(255)
 #  issues_enabled         :boolean          default(TRUE), not null
@@ -16,6 +15,11 @@
 #  merge_requests_enabled :boolean          default(TRUE), not null
 #  wiki_enabled           :boolean          default(TRUE), not null
 #  namespace_id           :integer
+#  public                 :boolean          default(FALSE), not null
+#  issues_tracker         :string(255)      default("gitlab"), not null
+#  issues_tracker_id      :string(255)
+#  snippets_enabled       :boolean          default(TRUE), not null
+#  last_activity_at       :datetime
 #
 
 require 'spec_helper'
@@ -35,14 +39,12 @@ describe Project do
     it { should have_many(:snippets).dependent(:destroy) }
     it { should have_many(:deploy_keys).dependent(:destroy) }
     it { should have_many(:hooks).dependent(:destroy) }
-    it { should have_many(:wikis).dependent(:destroy) }
     it { should have_many(:protected_branches).dependent(:destroy) }
   end
 
   describe "Mass assignment" do
     it { should_not allow_mass_assignment_of(:namespace_id) }
     it { should_not allow_mass_assignment_of(:creator_id) }
-    it { should_not allow_mass_assignment_of(:private_flag) }
   end
 
   describe "Validation" do
@@ -61,16 +63,12 @@ describe Project do
     it { should ensure_inclusion_of(:wall_enabled).in_array([true, false]) }
     it { should ensure_inclusion_of(:merge_requests_enabled).in_array([true, false]) }
     it { should ensure_inclusion_of(:wiki_enabled).in_array([true, false]) }
+    it { should ensure_length_of(:issues_tracker_id).is_within(0..255) }
 
     it "should not allow new projects beyond user limits" do
       project.stub(:creator).and_return(double(can_create_project?: false, projects_limit: 1))
       project.should_not be_valid
-      project.errors[:base].first.should match(/Your own projects limit is 1/)
-    end
-
-    it "should not allow 'gitolite-admin' as repo name" do
-      should allow_value("blah").for(:path)
-      should_not allow_value("gitolite-admin").for(:path)
+      project.errors[:limit_reached].first.should match(/Your own projects limit is 1/)
     end
   end
 
@@ -78,13 +76,8 @@ describe Project do
     it { should respond_to(:url_to_repo) }
     it { should respond_to(:repo_exists?) }
     it { should respond_to(:satellite) }
-    it { should respond_to(:update_repository) }
-    it { should respond_to(:destroy_repository) }
-    it { should respond_to(:observe_push) }
     it { should respond_to(:update_merge_requests) }
     it { should respond_to(:execute_hooks) }
-    it { should respond_to(:post_receive_data) }
-    it { should respond_to(:trigger_post_receive) }
     it { should respond_to(:transfer) }
     it { should respond_to(:name_with_namespace) }
     it { should respond_to(:namespace_owner) }
@@ -94,7 +87,7 @@ describe Project do
 
   it "should return valid url to repo" do
     project = Project.new(path: "somewhere")
-    project.url_to_repo.should == Gitlab.config.gitolite.ssh_path_prefix + "somewhere.git"
+    project.url_to_repo.should == Gitlab.config.gitlab_shell.ssh_path_prefix + "somewhere.git"
   end
 
   it "returns the full web URL for this repo" do
@@ -103,6 +96,7 @@ describe Project do
   end
 
   describe "last_activity methods" do
+    before { enable_observers }
     let(:project)    { create(:project) }
     let(:last_event) { double(created_at: Time.now) }
 
@@ -115,8 +109,8 @@ describe Project do
 
     describe 'last_activity_date' do
       it 'returns the creation date of the project\'s last event if present' do
-        project.stub(last_event: last_event)
-        project.last_activity_date.should == last_event.created_at
+        last_activity_event = create(:event, project: project)
+        project.last_activity_at.to_i.should == last_event.created_at.to_i
       end
 
       it 'returns the project\'s last update date if it has no events' do
@@ -126,13 +120,10 @@ describe Project do
   end
 
   describe :update_merge_requests do
-    let(:project) { create(:project) }
+    let(:project) { create(:project_with_code) }
 
     before do
-      @merge_request = create(:merge_request,
-                              project: project,
-                              merged: false,
-                              closed: false)
+      @merge_request = create(:merge_request, project: project)
       @key = create(:key, user_id: project.owner.id)
     end
 
@@ -141,8 +132,7 @@ describe Project do
       @merge_request.last_commit.id.should == "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a"
       project.update_merge_requests("8716fc78f3c65bbf7bcf7b574febd583bc5d2812", "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a", "refs/heads/stable", @key.user)
       @merge_request.reload
-      @merge_request.merged.should be_true
-      @merge_request.closed.should be_true
+      @merge_request.merged?.should be_true
     end
 
     it "should update merge request commits with new one if pushed to source branch" do
@@ -153,36 +143,6 @@ describe Project do
     end
   end
 
-  describe :create_by_user do
-    before do
-      @user = create :user
-      @opts = {
-        name: "GitLab"
-      }
-    end
-
-    context 'user namespace' do
-      before do
-        @project = Project.create_by_user(@opts, @user)
-      end
-
-      it { @project.should be_valid }
-      it { @project.owner.should == @user }
-      it { @project.namespace.should == @user.namespace }
-    end
-
-    context 'user namespace' do
-      before do
-        @group = create :group, owner: @user
-        @opts.merge!(namespace_id: @group.id)
-        @project = Project.create_by_user(@opts, @user)
-      end
-
-      it { @project.should be_valid }
-      it { @project.owner.should == @user }
-      it { @project.namespace.should == @group }
-    end
-  end
 
   describe :find_with_namespace do
     context 'with namespace' do
@@ -230,9 +190,69 @@ describe Project do
     it "should return valid repo" do
       project.repository.should be_kind_of(Repository)
     end
+  end
 
-    it "should return nil" do
-      Project.new(path: "empty").repository.should be_nil
+  describe :issue_exists? do
+    let(:project) { create(:project) }
+    let(:existed_issue) { create(:issue, project: project) }
+    let(:not_existed_issue) { create(:issue) }
+    let(:ext_project) { create(:redmine_project) }
+
+    it "should be true or if used internal tracker and issue exists" do
+      project.issue_exists?(existed_issue.id).should be_true
     end
+
+    it "should be false or if used internal tracker and issue not exists" do
+      project.issue_exists?(not_existed_issue.id).should be_false
+    end
+
+    it "should always be true if used other tracker" do
+      ext_project.issue_exists?(rand(100)).should be_true
+    end
+  end
+
+  describe :used_default_issues_tracker? do
+    let(:project) { create(:project) }
+    let(:ext_project) { create(:redmine_project) }
+
+    it "should be true if used internal tracker" do
+      project.used_default_issues_tracker?.should be_true
+    end
+
+    it "should be false if used other tracker" do
+      ext_project.used_default_issues_tracker?.should be_false
+    end
+  end
+
+  describe :can_have_issues_tracker_id? do
+    let(:project) { create(:project) }
+    let(:ext_project) { create(:redmine_project) }
+
+    it "should be true for projects with external issues tracker if issues enabled" do
+      ext_project.can_have_issues_tracker_id?.should be_true
+    end
+
+    it "should be false for projects with internal issue tracker if issues enabled" do
+      project.can_have_issues_tracker_id?.should be_false
+    end
+
+    it "should be always false if issues disbled" do
+      project.issues_enabled = false
+      ext_project.issues_enabled = false
+
+      project.can_have_issues_tracker_id?.should be_false
+      ext_project.can_have_issues_tracker_id?.should be_false
+    end
+  end
+
+  describe :open_branches do
+    let(:project) { create(:project_with_code) }
+
+    before do
+      project.protected_branches.create(name: 'master')
+    end
+
+    it { project.open_branches.map(&:name).should include('bootstrap') }
+    it { project.open_branches.map(&:name).should_not include('master') }
   end
 end
